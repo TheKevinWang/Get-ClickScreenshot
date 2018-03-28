@@ -184,7 +184,6 @@ PS C:\> Get-ClickScreenshot -Path c:\temp\ -EndTime 14:00
         } else {
             $EventTrigger = $RightClickState -or $MidClickState -or $LeftClickState
         }
-        #always false if $MaxScreenshots not set
         if( $MaxScreenshots -and ($ClickCount -ge $MaxScreenshots)) {
             return
         }

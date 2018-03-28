@@ -12,7 +12,7 @@ TODO: screenshot on mousewheel scroll. Requires hooking
 TODO: highlight mouse location
 TODO: option to capture only the screen that the click happened in multi-monitor environments
 TODO: zip archive and powershell empire integration
-TODO: integrate Get-TimedScreenshot 
+TODO: integrate with Get-TimedScreenshot 
 
 .PARAMETER Path
 

